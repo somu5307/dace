@@ -82,6 +82,7 @@ class MapPermutationSpace(TransferSpace):
                 if not isinstance(node, nodes.MapEntry) or xfh.get_parent_map(state, node) is not None:
                     continue
             
+                state_id = sdfg.node_id(state)
                 subgraph_nodes = state.scope_subgraph(node).nodes()
                 cutout = cutter.cutout_state(state, *subgraph_nodes, make_copy=False)
                 yield cutout
