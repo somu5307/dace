@@ -43,7 +43,7 @@ class TransferSpace(ABC):
         pass
 
     @abstractmethod
-    def apply_on_cutout(self, cutout: SDFG, config: Any,  make_copy=True) -> SDFG:
+    def apply_config(self, cutout: SDFG, config: Any,  make_copy=True) -> SDFG:
         """
         Applies the configuration to the cutout.
 
@@ -55,7 +55,7 @@ class TransferSpace(ABC):
         pass
 
     @abstractmethod
-    def apply_on_target(self, sdfg: SDFG, cutout: SDFG, config: Any) -> None:
+    def translate_config(self, cutout: SDFG, sdfg: SDFG, config: Any) -> Any:
         pass
 
     @abstractmethod

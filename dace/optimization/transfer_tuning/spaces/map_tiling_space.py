@@ -18,17 +18,20 @@ class MapTilingSpace(TransferSpace):
     def name(self) -> str:
         return 'MapTilingSpace'
 
-    def apply_on_cutout(self, cutout: SDFG, config: Any, make_copy: bool = True) -> SDFG:
+    def apply_config(self, cutout: SDFG, config: Any, make_copy: bool = True) -> SDFG:
         if make_copy:
             cutout_ = copy.deepcopy(cutout)
         else:
             cutout_ = cutout
         
-        map_entry = MapTilingSpace.top_map(cutout_)
+        param, target = config
+        state_id, node_id = target
+        map_entry = cutout.node(state_id).node(node_id)
+
         MapTiling.apply_to(
             cutout_,
             map_entry=map_entry,
-            options={"tile_sizes": config},
+            options={"tile_sizes": param},
             verify=False,
             save=False,
             annotate=False,
@@ -36,21 +39,14 @@ class MapTilingSpace(TransferSpace):
 
         return cutout_
 
-    def apply_on_target(self, sdfg: SDFG, cutout: SDFG, config: Any) -> None:
-        state_id = int(cutout.name.split("_")[-1])
-        state = sdfg.node(state_id)
-        
-        cmap_entry = MapTilingSpace.top_map(cutout)
-        node_id = state.node_id(cmap_entry)
-        map_entry = state.node(node_id)
-        MapTiling.apply_to(
-            sdfg,
-            map_entry=map_entry,
-            options={"tile_sizes": config},
-            verify=False,
-            save=False,
-            annotate=False,
-        )
+    def translate_config(self, cutout: SDFG, sdfg: SDFG, config: Any) -> Any:
+        param, target = config
+        state_id, node_id = target
+        map_entry = cutout.node(state_id).node(node_id)
+
+        sstate_id = cutout.name.split("_")[-1]
+        snode_id = sdfg.node(sstate_id).node_id(map_entry)
+        return param, (sstate_id, snode_id)
 
     def encode_config(self, config: Any) -> str:
         return str(config)
@@ -92,6 +88,9 @@ class MapTilingSpace(TransferSpace):
     def configurations(self, cutout: SDFG) -> Generator[Any, None, None]:
         map_entry = MapTilingSpace.top_map(cutout)
         
+        state_id = 0
+        node_id = cutout.start_state.node_id(map_entry)
+        
         max_tile = []
         for rng in map_entry.range.ranges:
             start, stop, step = rng
@@ -101,7 +100,7 @@ class MapTilingSpace(TransferSpace):
             max_tile.append(iter)
 
         for k in range(1, 11):
-            config = []
+            param = []
             all_bounded = True
             for dim in max_tile:
                 max_k = int(math.log2(dim)) 
@@ -111,12 +110,12 @@ class MapTilingSpace(TransferSpace):
                     tile_size = 2 ** k
                     all_bounded = False
                 
-                config.append(tile_size)
+                param.append(tile_size)
 
             if all_bounded:
                 break 
 
-            yield config
+            yield param, (state_id, node_id)
 
     @staticmethod
     def top_map(cutout: SDFG):

@@ -29,7 +29,7 @@ class TransferTuner():
             for stage_desc in self._config["stages"]:
                 stage = []
                 for space in stage_desc:
-                    space_class = locate(f'dace.optimization.transfer.spaces.{space}')
+                    space_class = locate(f'dace.optimization.transfer_tuning.spaces.{space}')
                     stage.append(space_class())
                 
                 self._stages.append(stage)
@@ -40,20 +40,20 @@ class TransferTuner():
     def _load_cache(self, path: Union[str, Path]) -> Dict:
         return {}
 
-    def _search(self, stage: List[TransferSpace], sdfg: SDFG, dreport, instrumentation_type: InstrumentationType, search_cache: Dict, save_results: bool = True) -> Dict:
+    def _search(self, stage: List[TransferSpace], sdfg: SDFG, dreport, instrumentation_type: InstrumentationType, search_cache: Dict, save_cache: bool = True) -> Dict:
         """
-        Searches the space of the stage recursively.
+        Searches the space of the stage brute-force.
         The best config of each cutout is directly applied to the SDFG.
 
         :param stage: the stage.
         :param sdfg: the sdfg.
         :param instrumentation_type: the instrumentation type defines the metric to compare configurations.
         :param search_cache: a (partial) search cache from previous runs.
-        :param save_results: whether to write the search cache to the dacecache folder of the SDFG.
+        :param save_cache: whether to write the search cache to the dacecache folder of the SDFG.
         :return: returns the updated search cache.
         """
         current_space = stage[0]
-        for i, cutout in enumerate(current_space.cutout(sdfg)):
+        for i, cutout in tqdm(list(enumerate(current_space.cutouts(sdfg)))):
             if i not in search_cache:
                 # Cutout not in cache, measure baseline
                 cutout.instrument = instrumentation_type
@@ -64,11 +64,13 @@ class TransferTuner():
             if base_runtime < 0 or base_runtime == math.inf:
                 continue
 
+            print(f"New cutout with: {base_runtime:.2f} ms")
+
             # Iterate through config space and measure configs if necessary
             best_runtime = base_runtime
             best_config = None
             new_configs = []
-            for config in current_space.configurations(cutout):
+            for config in tqdm(list(current_space.configurations(cutout))):
                 key = current_space.encode_config(config)
                 if key in search_cache[i]:
                     # a) Results from cache
@@ -83,15 +85,16 @@ class TransferTuner():
                     continue
 
                 # b) Measure config
+                search_cache[i][key] = {}
                 search_cache[i][key]["runtime"] = math.inf
                 search_cache[i][key]["subspace"] = {}
 
-                cutout_ = current_space.apply_on_cutout(cutout, config, make_copy=True)
+                cutout_ = current_space.apply_config(cutout, config, make_copy=True)
                 cutout_.instrument = instrumentation_type
                 if len(stage) > 1:
                     subspace_cache = search_cache[i][config]["subspace"]
                     
-                    self.run_stage(stage[:1], cutout_, dreport, instrumentation_type, search_cache=subspace_cache, save_results=False)
+                    self.run_stage(stage[:1], cutout_, dreport, instrumentation_type, search_cache=subspace_cache, save_cache=False)
                     
                     search_cache[i][key]["runtime"] = subspace_cache
 
@@ -102,6 +105,8 @@ class TransferTuner():
                 if runtime < 0 or runtime == math.inf:
                     continue
 
+                print(f"{key} with {runtime:.2f} ms")
+
                 if runtime < best_runtime:
                     best_runtime = runtime
                     best_config = key
@@ -110,18 +115,34 @@ class TransferTuner():
             search_cache[i]["best_config"] = best_config
             search_cache[i]["best_runtime"] = best_runtime
 
-        if save_results:
+        if save_cache:
             self._write_cache(stage, search_cache)
 
         # Update SDFG with best configs
-        self._apply_best_config(stage, sdfg, search_cache)
+        context = [sdfg]
+        self._apply_best_config(stage, search_cache, context=context)
 
+        print(search_cache)
         return search_cache
+
+    def _apply_best_config(self, stage: List[TransferSpace], search_cache: Dict, context: List[SDFG] = None) -> None:
+        current_space = stage[0]
+        current_context = context[0]
+        for i, cutout in enumerate(current_space.cutouts(current_context)):
+            key = search_cache[i]["best_config"]
+            config = search_cache[i][key]
+
+            config = current_space.translate_config(cutout, sdfg, config)
+            current_space.apply_config(sdfg, config)
+
+            if len(stage) > 1:
+                # Recursively apply on SDFG
+                pass
 
     def tune(self, sdfg: SDFG, dreport, instrumentation_type: InstrumentationType = InstrumentationType.Timer, search_cache_path: Union[str, Path] = None) -> None:
         """
-        Auto-tunes the SDFG by search through the stages defined in the tuning config.
-        Stages run sequentially and each stage tunes multiple cutouts of the SDFG individually.
+        Auto-tunes the SDFG with stages defined in the tuning config.
+        Stages run sequentially and each stage tunes multiple cutouts of the SDFG.
 
         :param sdfg: the SDFG.
         :param dreport: the data report (obtained from dry_run function).
@@ -133,18 +154,7 @@ class TransferTuner():
             search_cache = self._load_cache(search_cache_path)
 
         for stage in self._stages:
-            self._search(stage, sdfg, dreport, instrumentation_type, search_cache=search_cache, save_results=True)
-
-    def _apply_best_config(self, stage: List[TransferSpace], sdfg: SDFG, search_cache: Dict) -> None:
-        current_space = stage.pop(0)
-        for i, cutout in enumerate(current_space.cutout(sdfg)):
-            key = search_cache[i]["best_config"]
-            config = search_cache[i][key]
-            current_space.apply_on_target(sdfg, cutout, config)
-
-            if len(stage) > 0:
-                # Recursively apply on SDFG
-                pass
+            self._search(stage, sdfg, dreport, instrumentation_type, search_cache=search_cache, save_cache=True)
 
     @staticmethod
     def dry_run(sdfg: SDFG, *args, **kwargs) -> Any:

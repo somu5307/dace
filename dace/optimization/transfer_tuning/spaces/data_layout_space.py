@@ -12,7 +12,7 @@ class DataLayoutSpace(TransferSpace):
     def name(self) -> str:
         return 'DataLayoutSpace'
 
-    def apply_on_cutout(self, cutout: SDFG, config: Any, make_copy: bool = True) -> SDFG:
+    def apply_config(self, cutout: SDFG, config: Any, make_copy: bool = True) -> SDFG:
         if make_copy:
             cutout_ = copy.deepcopy(cutout)
         else:
@@ -21,12 +21,8 @@ class DataLayoutSpace(TransferSpace):
         cutout_._arrays = config
         return cutout_
 
-    def apply_on_target(self, sdfg: SDFG, cutout: SDFG, config: Any) -> None:
-        for array in sdfg._arrays:
-            if array not in config:
-                continue
-            
-            sdfg._arrays[array] = config[array]
+    def translate_config(self, cutout: SDFG, sdfg: SDFG, config: Any) -> Any:
+        return config
 
     def encode_config(self, config: Any) -> str:
         dict_str = ','.join([f'"{k}": "{v.strides}"' for k, v in config.items() if not v.transient])
