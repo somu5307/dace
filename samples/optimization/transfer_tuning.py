@@ -4,7 +4,7 @@ import numpy as np
 
 from pathlib import Path
 
-import dace.optimization.transfer as optim
+import dace.optimization.transfer_tuning as optim
 
 I, J, K = (dace.symbol(s, dtype=dace.int64) for s in ('I', 'J', 'K'))
 
@@ -57,7 +57,7 @@ in_field, out_field, coeff = initialize(I=256, J=256, K=160)
 tuner = optim.TransferTuner(Path(__file__).parent / "transfer_config.json")
 dreport = tuner.dry_run(sdfg, in_field=in_field, out_field=out_field, coeff=coeff)
 
-tuner.optimize(sdfg, dreport=dreport, instrumentation_type=dace.InstrumentationType.Timer)
+tuner.tune(sdfg, dreport=dreport, instrumentation_type=dace.InstrumentationType.Timer)
 
 with open("tuned_hdiff.sdfg", "w") as handle:
     json.dump(sdfg.to_json(), handle)

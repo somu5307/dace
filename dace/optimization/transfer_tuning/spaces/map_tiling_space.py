@@ -9,7 +9,7 @@ from typing import Any, Generator, Tuple
 
 from dace import SDFG, nodes, symbolic
 from dace.sdfg.analysis import cutout as cutter
-from dace.optimization.transfer.transfer_space import TransferSpace
+from dace.optimization.transfer_tuning.transfer_space import TransferSpace
 from dace.transformation import helpers as xfh
 from dace.transformation.dataflow import MapTiling
 

@@ -5,7 +5,7 @@ import itertools
 from typing import Any, Generator, Tuple
 
 from dace import SDFG, symbolic
-from dace.optimization.transfer.transfer_space import TransferSpace
+from dace.optimization.transfer_tuning.transfer_space import TransferSpace
 
 class DataLayoutSpace(TransferSpace):
 

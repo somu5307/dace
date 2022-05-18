@@ -10,7 +10,7 @@ from typing import Any, Generator, Tuple, List
 from dace import SDFG, nodes
 from dace.transformation import helpers as xfh
 from dace.sdfg.analysis import cutout as cutter
-from dace.optimization.transfer.transfer_space import TransferSpace
+from dace.optimization.transfer_tuning.transfer_space import TransferSpace
 
 class MapPermutationSpace(TransferSpace):
 
