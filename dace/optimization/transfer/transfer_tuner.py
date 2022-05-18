@@ -7,6 +7,7 @@ from pathlib import Path
 from pydoc import locate
 
 from dace import SDFG, InstrumentationType, DataInstrumentationType, nodes
+from dace.optimization.transfer.transfer_space import TransferSpace
 from dace.optimization.transfer.utils import measure
 
 try:
@@ -30,45 +31,96 @@ class TransferTuner():
                 
                 self._stages.append(stage)
 
-    def optimize(self, sdfg: SDFG, dreport, instrumentation_type: InstrumentationType = InstrumentationType.Timer) -> Dict[str, Dict[Any, str]]:
-        for stage in self._stages:
-            current_space = stage.pop(0)
-            for cutout in tqdm(list(current_space.cutouts(sdfg))):
+    def _search(self, stage: List[TransferSpace], sdfg: SDFG, dreport, instrumentation_type: InstrumentationType, search_cache: Dict, save_results: bool = True):        
+        current_space = stage[0]
+        for i, cutout in enumerate(current_space.cutout(sdfg)):
+            if i not in search_cache:
+                # Cutout not in cache, measure baseline
                 cutout.instrument = instrumentation_type
-                base_runtime = measure(cutout, dreport)
+                search_cache[i] = {}
+                search_cache[i]["base_runtime"] = measure(cutout, dreport)
+            
+            base_runtime = search_cache[i]["base_runtime"]
+            if base_runtime < 0 or base_runtime == math.inf:
+                continue
 
-                print(f"New cutout with base runtime: {base_runtime:.2f}")
-
-                best_config = None
-                best_runtime = base_runtime
-                for config in tqdm(list(current_space.configurations(cutout))):
-                    cutout_ = current_space.apply_on_cutout(cutout, config, make_copy=True)
-                    cutout_.instrument = instrumentation_type
-
-                    runtime = measure(cutout_, dreport)
+            # Iterate through config space and measure configs if necessary
+            best_runtime = base_runtime
+            best_config = None
+            new_configs = []
+            for config in current_space.configurations(cutout):
+                key = current_space.encode_config(config)
+                if key in search_cache[i]:
+                    # a) Results from cache
+                    runtime = search_cache[i][key]["runtime"]
                     if runtime < 0 or runtime == math.inf:
                         continue
 
-                    print(f"Tested {config} with {base_runtime - runtime:.2f} delta")
-
-                    if runtime >= best_runtime:
-                        continue
-            
-                    best_runtime = runtime
-                    best_config = config
-                
-                if best_config is None:
+                    if runtime < best_runtime:
+                        best_runtime = runtime
+                        best_config = key
+                    
                     continue
 
-                patterns = current_space.extract_patterns(sdfg, cutout=cutout, config=best_config)
+                # b) Measure config
+                search_cache[i][key]["runtime"] = math.inf
+                search_cache[i][key]["subspace"] = {}
 
-                print(f"Applying {best_config} with {base_runtime - best_runtime:.2f} delta")
-                current_space.apply_on_target(sdfg, cutout, best_config)
+                cutout_ = current_space.apply_on_cutout(cutout, config, make_copy=True)
+                cutout_.instrument = instrumentation_type
+                if len(stage) > 1:
+                    subspace_cache = search_cache[i][config]["subspace"]
+                    
+                    self.run_stage(stage[:1], cutout_, dreport, instrumentation_type, search_cache=subspace_cache, save_results=False)
+                    
+                    search_cache[i][key]["runtime"] = subspace_cache
 
-    def transfer(self, sdfg: SDFG, database: Dict[str, Dict[Any, str]], strict: bool = False) -> None:
+                runtime = measure(cutout_, dreport)
+                search_cache[i][key]["runtime"] = runtime
+                new_configs.append(key)
+                
+                if runtime < 0 or runtime == math.inf:
+                    continue
+
+                if runtime < best_runtime:
+                    best_runtime = runtime
+                    best_config = key
+
+            # Store best config
+            search_cache[i]["best_config"] = best_config
+            search_cache[i]["best_runtime"] = best_runtime
+
+        if save_results:
+            self._write_cache(stage, search_cache)
+
+        self._apply_best_config(stage, sdfg, search_cache)
+
+        return search_cache
+
+    def _apply_best_config(self, stage: List[TransferSpace], sdfg: SDFG, search_cache: Dict):
+        current_space = stage.pop(0)
+        for i, cutout in enumerate(current_space.cutout(sdfg)):
+            key = search_cache[i]["best_config"]
+            config = search_cache[i][key]
+            current_space.apply_on_target(sdfg, cutout, config)
+
+            if len(stage) > 0:
+                # Recursively apply on SDFG
+                pass
+
+    def _write_cache(self, stage: List[TransferSpace], search_cache: Dict):
+        pass
+
+    def _load_cache(self, path: Union[str, Path]):
+        return {}
+
+    def optimize(self, sdfg: SDFG, dreport, instrumentation_type: InstrumentationType = InstrumentationType.Timer, search_cache_path: Union[str, Path] = None) -> Dict[str, Dict[Any, str]]:
+        search_cache = {}
+        if search_cache is not None:
+            search_cache = self._load_cache(search_cache_path)
+
         for stage in self._stages:
-            stage_database = database[stage.name()]
-            stage.transfer(sdfg, database=stage_database, strict=strict)
+            self._search(stage, sdfg, dreport, instrumentation_type, search_cache=search_cache, save_results=True)
 
     @staticmethod
     def dry_run(sdfg: SDFG, *args, **kwargs) -> Any:
