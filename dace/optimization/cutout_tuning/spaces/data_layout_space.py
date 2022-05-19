@@ -5,9 +5,9 @@ import itertools
 from typing import Any, Generator, Tuple
 
 from dace import SDFG, symbolic
-from dace.optimization.transfer_tuning.transfer_space import TransferSpace
+from dace.optimization.cutout_tuning.cutout_space import CutoutSpace
 
-class DataLayoutSpace(TransferSpace):
+class DataLayoutSpace(CutoutSpace):
 
     def name(self) -> str:
         return 'DataLayoutSpace'

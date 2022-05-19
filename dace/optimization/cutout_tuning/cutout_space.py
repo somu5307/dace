@@ -1,3 +1,4 @@
+# Copyright 2019-2022 ETH Zurich and the DaCe authors. All rights reserved.
 import math
 
 from abc import ABC, abstractmethod
@@ -5,7 +6,7 @@ from typing import Dict, Any, Generator, Tuple
 
 from dace import SDFG, InstrumentationType
 
-class TransferSpace(ABC):
+class CutoutSpace(ABC):
     """
     
     """
@@ -101,9 +102,3 @@ class TransferSpace(ABC):
         """
         database = {}
         return database
-
-    def transfer(self, sdfg: SDFG, database: Dict[Any, str], strict: bool):
-        """
-        
-        """
-        pass

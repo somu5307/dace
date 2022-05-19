@@ -4,7 +4,7 @@ import numpy as np
 
 from pathlib import Path
 
-import dace.optimization.transfer_tuning as optim
+import dace.optimization.cutout_tuning as optim
 
 I, J, K = (dace.symbol(s, dtype=dace.int64) for s in ('I', 'J', 'K'))
 
@@ -54,10 +54,15 @@ sdfg.specialize(dict(I=I,J=J,K=K))
 
 in_field, out_field, coeff = initialize(I=256, J=256, K=160)
 
-tuner = optim.TransferTuner(Path(__file__).parent / "transfer_config.json")
-dreport = tuner.dry_run(sdfg, in_field=in_field, out_field=out_field, coeff=coeff)
+config_path = Path(__file__).parent / "tuning_config.json"
+dreport = optim.CutoutTuner.dry_run(sdfg, in_field=in_field, out_field=out_field, coeff=coeff)
 
-tuner.tune(sdfg, dreport=dreport, instrumentation_type=dace.InstrumentationType.Timer)
+print(optim.measure(sdfg, dreport))
+
+tuner = optim.CutoutTuner(sdfg, dreport, config_path)
+tuner.tune()
+
+print(optim.measure(sdfg, dreport))
 
 with open("tuned_hdiff.sdfg", "w") as handle:
-    json.dump(sdfg.to_json(), handle)
+    json.dump(tuner._sdfg.to_json(), handle)
