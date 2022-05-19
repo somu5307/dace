@@ -69,7 +69,6 @@ class TransferTuner():
             # Iterate through config space and measure configs if necessary
             best_runtime = base_runtime
             best_config = None
-            new_configs = []
             for config in tqdm(list(current_space.configurations(cutout))):
                 key = current_space.encode_config(config)
                 if key in search_cache[i]:
@@ -96,11 +95,10 @@ class TransferTuner():
                     
                     self.run_stage(stage[:1], cutout_, dreport, instrumentation_type, search_cache=subspace_cache, save_cache=False)
                     
-                    search_cache[i][key]["runtime"] = subspace_cache
+                    search_cache[i][key]["subspace"] = subspace_cache
 
                 runtime = measure(cutout_, dreport)
                 search_cache[i][key]["runtime"] = runtime
-                new_configs.append(key)
                 
                 if runtime < 0 or runtime == math.inf:
                     continue
@@ -119,25 +117,47 @@ class TransferTuner():
             self._write_cache(stage, search_cache)
 
         # Update SDFG with best configs
-        context = [sdfg]
-        self._apply_best_config(stage, search_cache, context=context)
+        self._apply_best_configs(stage, sdfg, search_cache)
 
         print(search_cache)
         return search_cache
 
-    def _apply_best_config(self, stage: List[TransferSpace], search_cache: Dict, context: List[SDFG] = None) -> None:
+    def _apply_best_configs(self, stage: List[TransferSpace], sdfg: SDFG, search_cache: Dict, context: List[SDFG] = None):
+        if context is None:
+            context = [sdfg]
+        
         current_space = stage[0]
-        current_context = context[0]
-        for i, cutout in enumerate(current_space.cutouts(current_context)):
+        current_sdfg = context[-1]
+        # Apply best config to each cutout
+        for i, cutout in enumerate(current_space.cutouts(current_sdfg)):
             key = search_cache[i]["best_config"]
+            if key is None:
+                continue
+
             config = search_cache[i][key]
 
-            config = current_space.translate_config(cutout, sdfg, config)
-            current_space.apply_config(sdfg, config)
+            # Translate config back to SDFG and apply
+            current_context = cutout
+            for i in range(len(context)):
+                parent_context = context[-(i + 1)]
 
+                config = current_space.translate_config(current_context, parent_context, config)
+                current_space.apply_config(parent_context, config)
+
+                current_context = parent_context
+
+            # If nested configs, translate configs over cutout back to SDFG recursively and apply
+            # cutout needs to have the configs applied as well to remain equivalent to SDFG
             if len(stage) > 1:
-                # Recursively apply on SDFG
-                pass
+                nested_stages = stage.copy()
+                nested_stages.pop(0)
+
+                nested_search_cache = search_cache[i][key]["subspace"]
+
+                nested_context = context.copy()
+                nested_context.append(cutout)
+
+                self._apply_best_configs(nested_stages, sdfg, nested_search_cache, nested_context)
 
     def tune(self, sdfg: SDFG, dreport, instrumentation_type: InstrumentationType = InstrumentationType.Timer, search_cache_path: Union[str, Path] = None) -> None:
         """
