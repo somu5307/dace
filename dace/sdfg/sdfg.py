@@ -2198,6 +2198,7 @@ class SDFG(OrderedDiGraph[SDFGState, InterstateEdge]):
                                 the specified path.
             :param validate: If True, validates the SDFG prior to generating
                              code.
+            :param in_place: Compilation may modify the SDFG's contents.
             :return: A callable CompiledSDFG object.
         """
 
