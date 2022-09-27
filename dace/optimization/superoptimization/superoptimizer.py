@@ -351,18 +351,9 @@ class Superoptimizer(auto_tuner.AutoTuner):
 
         map_cache_path = self._map_schedule_cache_folder / f"{map_hash}.json"
         map_cache = {}
-        last_tile_size = None
         if map_cache_path.is_file():
             with open(map_cache_path, "r") as handle:
                 map_cache = json.load(handle)
-                last_tile_sizes = map_cache[next(iter(map_cache))]["schedules"]
-                last_tile_sizes = list(last_tile_sizes.keys())
-                last_tile_sizes_lst = list(
-                    map(lambda s: int(re.findall(r'\b\d+\b', ((s.split(':')[3]).strip()))[0]), last_tile_sizes)
-                )
-                if last_tile_sizes_lst:
-                    last_tile_size = max(last_tile_sizes_lst)
-                print("Tile size: ", last_tile_size)
         else:
             map_runtime, map_process_time = measure(mp,
                                                     arguments,
@@ -370,6 +361,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
                                                     warmup=self._warmup)
 
             map_cache[map_hash] = {"runtime": map_runtime, "process time": map_process_time, "schedules": {}}
+            map_cache["schedule_state"] = [0, 0, 0, 0, 0]
 
             with open(map_cache_path, "w") as handle:
                 json.dump(map_cache, handle)
@@ -381,6 +373,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
             best_runtime = map_cache[map_hash]["best schedule"]["runtime"]
             return best_schedule, best_runtime
 
+        initial_schedule_state = map_cache["schedule_state"]
         initial_time = map_cache[map_hash]["runtime"]
         best_process_time = map_cache[map_hash]["process time"]
         best_runtime = initial_time
@@ -390,7 +383,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
         cache_timer = time.time()
         start = time.time()
         print(f"Initial time {initial_time}")
-        for scheduled_map, schedule_desc in map_schedule_enumerator(mp, last_tile_size):
+        for scheduled_map, schedule_state, schedule_desc in map_schedule_enumerator(mp, state=initial_schedule_state):
             scheduled_map.build_folder = mp.build_folder
             if not schedule_desc in map_cache[map_hash]["schedules"]:
                 runtime, process_time = measure(scheduled_map,
@@ -414,12 +407,14 @@ class Superoptimizer(auto_tuner.AutoTuner):
             schedule = map_cache[map_hash]["schedules"][schedule_desc]["schedule"]
 
             end = time.time()
-            print(f"Hypothesis took {end -start}, {process_time}")
+            print(f"Hypothesis took {end - start}, {process_time}")
             print(runtime, schedule_desc)
 
             start = time.time()
 
-            if ((time.time() - cache_timer) / 60.0) > 2.0:
+            if ((time.time() - cache_timer) / 60.0) > 1.0:
+                cache_timer = time.time()
+                map_cache["schedule_state"] = schedule_state
                 with open(map_cache_path, "w") as handle:
                     json.dump(map_cache, handle)
 

@@ -1,4 +1,6 @@
+import copy
 import math
+import numpy as np
 import itertools
 
 from dace import SDFG, data, nodes, ScheduleType
@@ -11,49 +13,58 @@ from dace.transformation.dataflow import (MapDimShuffle, MapExpansion, MapCollap
                                           OutLocalStorage, MapSchedule, Vectorization, AccumulateTransient)
 
 
-def map_schedule_enumerator(map: SDFG, last_tile_sizes) -> SDFG:
-    map_tmp = map.to_json()
+def map_schedule_enumerator(cutout: SDFG, state=None) -> SDFG:
+    if state is None:
+        state = [0, 0, 0, 0, 0]
 
-    in_arrays, out_arrays = _arrays(map)
-    all_params = utils.map_params(map)
-    for permuted_params in _permutations(all_params):
-        permuted_map = SDFG.from_json(map_tmp)
-        _apply_permutation(permuted_map, permutation=permuted_params)
+    in_arrays, out_arrays = _arrays(cutout)
+    params = utils.map_params(cutout)
 
-        permuted_map_tmp = permuted_map.to_json()
-        tile_ranges = None
-        if last_tile_sizes is not None:
-            tile_ranges = range(int(math.log2(last_tile_sizes)), 9)
-        for tiling in _tilings(permuted_params, tile_ranges):
-            tiled_map = SDFG.from_json(permuted_map_tmp)
-            _apply_tiling(tiled_map, tiling)
-            _expand_all_maps(tiled_map)
+    permutations = list(_permutations(params))
+    for i, perm in enumerate(permutations[state[0]:]):
+        tilings = list(_tilings(perm))
+        for j, tiling in enumerate(tilings[state[1]:]):
+            cutout_ = copy.deepcopy(cutout)
+            if not _apply_permutation(cutout_, perm):
+                continue
+            if not _apply_tiling(cutout_, tiling):
+                continue
+            if not _expand_all_maps(cutout_):
+                continue
 
-            tiled_map_tmp = tiled_map.to_json()
-            expanded_params = utils.map_params(tiled_map)
-            for local_storage in _local_storage(expanded_params, in_arrays, out_arrays):
-                local_storage_map_ = SDFG.from_json(tiled_map_tmp)
+            expanded_params = utils.map_params(cutout_)
 
-                if not _apply_local_storage(local_storage_map_, local_storage=local_storage):
+            local_storages = list(_local_storage(expanded_params, in_arrays, out_arrays))
+            for k, local_storage in enumerate(local_storages[state[2]:]):
+                cutout_expanded = copy.deepcopy(cutout_)
+                if not _apply_local_storage(cutout_expanded, local_storage):
                     continue
-                _collapse_all_maps(local_storage_map_)
+                if not _collapse_all_maps(cutout_expanded):
+                    continue
 
-                collapsed_params = utils.map_params(local_storage_map_)
-                local_storage_map_tmp = local_storage_map_.to_json()
-                for parallelization in _parallelizations(collapsed_params):
-                    scheduled_map = SDFG.from_json(local_storage_map_tmp)
-                    _apply_parallelization(scheduled_map, parallelization)
+                collapsed_params = utils.map_params(cutout_expanded)
 
-                    scheduled_map_tmp = scheduled_map.to_json()
-                    for vec_len in _vectorizations():
-                        final_map = SDFG.from_json(scheduled_map_tmp)
-                        if _apply_vectorization(final_map, vec_len):
-                            try:
-                                final_map.validate()
-                                schedule_desc = f"{permuted_params}:{tiling}:{local_storage}:{parallelization}:{vec_len}"
-                                yield final_map, schedule_desc
-                            except:
-                                continue
+                parallelizations = list(_parallelizations(collapsed_params))
+                for l, parallelization in enumerate(parallelizations[state[3]:]):
+                    cutout_par = copy.deepcopy(cutout_expanded)
+                    if not _apply_parallelization(cutout_par, parallelization):
+                        continue
+
+                    vectorizations = list(_vectorizations())
+                    for m, vec_len in enumerate(vectorizations[state[4]:]):
+                        cutout_vec = copy.deepcopy(cutout_par)
+                        if not _apply_vectorization(cutout_vec, vec_len):
+                            continue
+
+                        try:
+                            cutout_vec.validate()
+
+                            state_ = np.add((i, j, k, l, m), state).tolist()
+                            print(state_)
+                            state_desc = f"{perm}#{tiling}#{local_storage}#{parallelization}#{vec_len}"
+                            yield cutout_vec, state_, state_desc
+                        except:
+                            continue
 
 
 def _permutations(all_params):
@@ -76,17 +87,6 @@ def _tilings(all_params, tile_sizes_range=None):
                 strategy[param] = tiling[i]
 
         yield strategy
-
-    # Go over 'strip mining' tilings - i.e., tiling only one dimension at a time.
-    for i, group in enumerate(all_params):
-        for param in group:
-            for tiling in [2**k for k in tile_sizes_range]:
-                if tiling < 2:
-                    continue
-                strategy = {p: 1 for p in group}
-                strategy[param] = tiling
-                yield strategy
-
 
 def _local_storage(all_params, in_arrays, out_arrays):
     arrays = list(in_arrays)
@@ -158,6 +158,7 @@ def _apply_permutation(map: SDFG, permutation):
                                verify=False)
         i = i + 1
 
+    return True
 
 def _apply_tiling(map: SDFG, tiling):
     levels = utils.map_levels(map)
@@ -167,35 +168,19 @@ def _apply_tiling(map: SDFG, tiling):
         map_entry = levels[map_entry]
 
         tile_sizes = [tiling[param] for param in map_entry.map.params]
-        n_tiled = 0
-        ts = 0
-        t_idx = 0
-        for i, tile in enumerate(tile_sizes):
-            if tile > 1:
-                n_tiled += 1
-                ts = tile
-                t_idx = i
+        if max(tile_sizes) == 1:
+            continue
 
-        if n_tiled == 1:
-            StripMining.apply_to(sdfg=map,
-                                 options={
-                                    "tile_size": ts,
-                                    "dim_idx": t_idx,
-                                 },
-                                 map_entry=map_entry,
-                                 save=True,
-                                 verify=False)
-        elif n_tiled > 1:
-            MapTiling.apply_to(sdfg=map,
-                               options={
-                                   "tile_sizes": tile_sizes,
-                                   "tile_trivial": False
-                               },
-                               map_entry=map_entry,
-                               save=True,
-                               verify=False)
+        MapTiling.apply_to(sdfg=map,
+                            options={
+                                "tile_sizes": tile_sizes,
+                                "tile_trivial": False
+                            },
+                            map_entry=map_entry,
+                            save=True,
+                            verify=False)
 
-    pass
+    return True
 
 
 def _apply_local_storage(map: SDFG, local_storage):
@@ -297,6 +282,8 @@ def _apply_parallelization(map: SDFG, parallelization):
                              save=True,
                              verify=False)
         i = i + 1
+    
+    return True
 
 
 def _apply_vectorization(map: SDFG, vector_len: int):
@@ -330,6 +317,8 @@ def _expand_all_maps(map: SDFG):
         map_entry = levels[map_entry]
         if len(map_entry.map.params) > 1:
             MapExpansion.apply_to(sdfg=map, map_entry=map_entry, save=True, verify=False, annotate=False)
+    
+    return True
 
 
 def _collapse_all_maps(map: SDFG):
@@ -361,6 +350,8 @@ def _collapse_all_maps(map: SDFG):
                                             verify=False)
         else:
             inner = outer
+
+    return True
 
 
 def _arrays(map: SDFG):
