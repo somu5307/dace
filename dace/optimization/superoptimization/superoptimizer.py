@@ -362,6 +362,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
 
             map_cache[map_hash] = {"runtime": map_runtime, "process time": map_process_time, "schedules": {}}
             map_cache["schedule_state"] = [0, 0, 0, 0, 0]
+            map_cache["cached process time"] = map_process_time
 
             with open(map_cache_path, "w") as handle:
                 json.dump(map_cache, handle)
@@ -375,7 +376,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
 
         initial_schedule_state = map_cache["schedule_state"]
         initial_time = map_cache[map_hash]["runtime"]
-        best_process_time = map_cache[map_hash]["process time"]
+        best_process_time = map_cache["cached process time"]
         best_runtime = initial_time
         best_schedule = []
         best_schedule_desc = None
@@ -415,6 +416,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
             if ((time.time() - cache_timer) / 60.0) > 1.0:
                 cache_timer = time.time()
                 map_cache["schedule_state"] = schedule_state
+                map_cache["cached process time"] = best_process_time
                 with open(map_cache_path, "w") as handle:
                     json.dump(map_cache, handle)
 
