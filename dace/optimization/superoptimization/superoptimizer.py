@@ -91,13 +91,13 @@ class Superoptimizer(auto_tuner.AutoTuner):
         print(f"Canonicalized time {canon_time}")
 
         print("Optimizing subgraphs")
-        self._optimize_subgraphs(sdfg=sdfg, data_report=dreport)
+        subgraph_tuning_time = self._optimize_subgraphs(sdfg=sdfg, data_report=dreport)
 
         with open(self._cache_folder / "fused.sdfg", "w") as handle:
             json.dump(sdfg.to_json(), handle)
 
         print("Optimizing maps")
-        self._optimize_maps(sdfg=sdfg, data_report=dreport)
+        maps_tuning_time = self._optimize_maps(sdfg=sdfg, data_report=dreport)
 
         with open(self._cache_folder / "optimized.sdfg", "w") as handle:
             json.dump(sdfg.to_json(), handle)
@@ -109,10 +109,13 @@ class Superoptimizer(auto_tuner.AutoTuner):
         sdfg.build_folder = self._build_folder
 
         end = time.time()
-        print(f"Tuning took {(end - start) / 60.0:.3f} minutes")
+        print(f"Tuning iteration took {(end - start) / 60.0:.3f} minutes")
+        print(f"Total tuning took {(subgraph_tuning_time + maps_tuning_time) / 60.0:.3f} minutes")
         return sdfg
 
-    def _optimize_subgraphs(self, sdfg: SDFG, data_report: InstrumentedDataReport) -> None:
+    def _optimize_subgraphs(self, sdfg: SDFG, data_report: InstrumentedDataReport) -> int:
+        start_t = time.perf_counter()
+        cached_rt = 0
         initial_map_runtimes = self._measure_initial_map_runtimes(sdfg, data_report=data_report)
 
         for subgraph, matches in map_fusion_enumerator(sdfg):
@@ -130,6 +133,8 @@ class Superoptimizer(auto_tuner.AutoTuner):
             if subgraph_cache_path.is_file():
                 with open(subgraph_cache_path, "r") as handle:
                     subgraph_cache = json.load(handle)
+                    if subgraph_cache['subgraph_opt_time']:
+                        cached_rt = subgraph_cache['subgraph_opt_time']
             else:
                 args = arguments_from_data_report(cutout, data_report=data_report)
                 subgraph_time, subgraph_process_time = measure(cutout,
@@ -260,6 +265,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
                         break
 
                     if ((time.time() - cache_timer) / 60.0) > 2.0:
+                        subgraph_cache['subgraph_opt_time'] = cached_rt + (time.perf_counter() - start_t)
                         with open(subgraph_cache_path, "w") as handle:
                             json.dump(subgraph_cache, handle)
                         cache_timer = time.time()
@@ -277,6 +283,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
                 "process time": best_process_time,
                 "fusion": best_fusion_desc
             }
+            subgraph_cache['subgraph_opt_time'] = cached_rt + (time.perf_counter() - start_t)
             with open(subgraph_cache_path, "w") as handle:
                 json.dump(subgraph_cache, handle)
 
@@ -299,7 +306,11 @@ class Superoptimizer(auto_tuner.AutoTuner):
                                           verify=True,
                                           save=True)
 
+        return cached_rt + (time.perf_counter() - start_t)
+
     def _optimize_maps(self, sdfg: SDFG, data_report: InstrumentedDataReport) -> None:
+        tune_time_sum = 0
+
         maps = {}
         maps_schedules = {}
         maps_runtime = {}
@@ -331,9 +342,10 @@ class Superoptimizer(auto_tuner.AutoTuner):
                     map_cutout = maps[maps_hash]
 
                     if not maps_hash in maps_schedules:
-                        schedule, schedule_runtime = self._find_best_map_schedule(map_cutout,
-                                                                                  maps_hash,
-                                                                                  data_report=data_report)
+                        schedule, schedule_runtime, tune_time = self._find_best_map_schedule(map_cutout,
+                                                                                             maps_hash,
+                                                                                             data_report=data_report)
+                        tune_time_sum += tune_time
                         maps_schedules[maps_hash] = schedule
                         maps_runtime[maps_hash] = schedule_runtime
 
@@ -342,8 +354,12 @@ class Superoptimizer(auto_tuner.AutoTuner):
 
                 state_end_time = time.time()
                 print(f"Optimization of {state} took {state_end_time - state_start_time}")
+        return tune_time_sum
 
     def _find_best_map_schedule(self, mp, map_hash, data_report) -> Tuple[List, float]:
+        start_t = time.perf_counter()
+        cached_rt = 0
+
         print("Optimizing map")
 
         # Create arguments once
@@ -354,6 +370,9 @@ class Superoptimizer(auto_tuner.AutoTuner):
         if map_cache_path.is_file():
             with open(map_cache_path, "r") as handle:
                 map_cache = json.load(handle)
+
+            if map_cache['opt_runtime']:
+                cached_rt = map_cache['opt_runtime']
         else:
             map_runtime, map_process_time = measure(mp,
                                                     arguments,
@@ -365,6 +384,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
             map_cache["cached process time"] = map_process_time
 
             with open(map_cache_path, "w") as handle:
+                map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
                 json.dump(map_cache, handle)
             with open(self._map_schedule_cache_folder / f"{map_hash}.sdfg", "w") as handle:
                 json.dump(mp.to_json(), handle)
@@ -417,6 +437,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
                 cache_timer = time.time()
                 map_cache["schedule_state"] = schedule_state
                 map_cache["cached process time"] = best_process_time
+                map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
                 with open(map_cache_path, "w") as handle:
                     json.dump(map_cache, handle)
 
@@ -439,11 +460,12 @@ class Superoptimizer(auto_tuner.AutoTuner):
             "process time": best_process_time,
             "schedule desc": best_schedule_desc
         }
+        map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
 
         with open(map_cache_path, "w") as handle:
             json.dump(map_cache, handle)
 
-        return best_schedule, best_runtime
+        return best_schedule, best_runtime, cached_rt + (time.perf_counter() - start_t)
 
     def _measure_initial_map_runtimes(self, sdfg: SDFG,
                                       data_report: InstrumentedDataReport) -> Dict[nodes.MapEntry, float]:
