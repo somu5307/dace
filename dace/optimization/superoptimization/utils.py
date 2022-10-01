@@ -43,9 +43,17 @@ def map_params(map: SDFG):
     levels = map_levels(map)
 
     desc = []
+    array_accesses = []
     map_entry = None
     while map_entry in levels:
         map_entry = levels[map_entry]
+        map_exit = map.start_state.exit_node(map_entry)
         desc.append(map_entry.map.params)
+        level_accesses = {}
+        for iedge in map.start_state.in_edges(map_entry):
+            level_accesses[iedge.data.data] = str(iedge.data.data) + '[' + str(iedge.data.subset) + ']'
+        for oedge in map.start_state.out_edges(map_exit):
+            level_accesses[oedge.data.data] = str(oedge.data.data) + '[' + str(oedge.data.subset) + ']'
+        array_accesses.append(level_accesses)
 
-    return desc
+    return desc, array_accesses

@@ -18,7 +18,7 @@ def map_schedule_enumerator(cutout: SDFG, state=None) -> SDFG:
         state = [0, 0, 0, 0, 0]
 
     in_arrays, out_arrays = _arrays(cutout)
-    params = utils.map_params(cutout)
+    params, _ = utils.map_params(cutout)
 
     permutations = list(_permutations(params))
     for i, perm in enumerate(permutations[state[0]:]):
@@ -32,9 +32,9 @@ def map_schedule_enumerator(cutout: SDFG, state=None) -> SDFG:
             if not _expand_all_maps(cutout_):
                 continue
 
-            expanded_params = utils.map_params(cutout_)
+            expanded_params, expanded_array_accesses = utils.map_params(cutout_)
 
-            local_storages = list(_local_storage(expanded_params, in_arrays, out_arrays))
+            local_storages = list(_local_storage(expanded_params, in_arrays, out_arrays, expanded_array_accesses))
             for k, local_storage in enumerate(local_storages[state[2]:]):
                 cutout_expanded = copy.deepcopy(cutout_)
                 if not _apply_local_storage(cutout_expanded, local_storage):
@@ -42,7 +42,7 @@ def map_schedule_enumerator(cutout: SDFG, state=None) -> SDFG:
                 if not _collapse_all_maps(cutout_expanded):
                     continue
 
-                collapsed_params = utils.map_params(cutout_expanded)
+                collapsed_params, _ = utils.map_params(cutout_expanded)
 
                 parallelizations = list(_parallelizations(collapsed_params))
                 for l, parallelization in enumerate(parallelizations[state[3]:]):
@@ -126,14 +126,19 @@ def _tilings(all_params):
                             'second_level': second_level_strategy,
                         }
 
-def _local_storage(all_params, in_arrays, out_arrays):
+def _local_storage(all_params, in_arrays, out_arrays, array_level_accesses):
     arrays = list(in_arrays)
     arrays.extend(out_arrays)
 
+    storage_set = set()
+
     op = {"in": {}, "out": {}}
-    if len(all_params) <= 1 or len(arrays) == 0:
+    if len(all_params) <= 1 or len(arrays) == 0 or len(array_level_accesses) == 0:
         yield op
         return
+
+    for a in arrays:
+        storage_set.add(array_level_accesses[0][a])
 
     options = []
     for array in arrays:
@@ -142,9 +147,11 @@ def _local_storage(all_params, in_arrays, out_arrays):
         array_options.append(zeros)
 
         for i in range(len(all_params) - 1):
-            bin = [0] * (len(all_params) - 1)
-            bin[i] = 1
-            array_options.append(bin)
+            if array_level_accesses[i + 1][array] not in storage_set:
+                bin = [0] * (len(all_params) - 1)
+                bin[i] = 1
+                array_options.append(bin)
+                storage_set.add(array_level_accesses[i + 1][array])
 
         options.append(array_options)
 
