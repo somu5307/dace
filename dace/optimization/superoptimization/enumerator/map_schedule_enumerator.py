@@ -16,6 +16,8 @@ from dace.transformation.dataflow import (MapDimShuffle, MapExpansion, MapCollap
 def map_schedule_enumerator(cutout: SDFG, state=None) -> SDFG:
     if state is None:
         state = [0, 0, 0, 0, 0]
+    else:
+        state = copy.deepcopy(state)
 
     in_arrays, out_arrays = _arrays(cutout)
     params, _ = utils.map_params(cutout)
@@ -65,6 +67,13 @@ def map_schedule_enumerator(cutout: SDFG, state=None) -> SDFG:
                             yield cutout_vec, state_, state_desc
                         except:
                             continue
+
+                    state[4] = 0
+                state[3] = 0
+            state[2] = 0
+        state[1] = 0
+    state[0] = 0
+
 
 
 def _permutations(all_params):
