@@ -75,56 +75,56 @@ def _permutations(all_params):
 
 def _tilings(all_params):
     first_level_max_exp = 6
-    second_level_max_exp = 5
+    #second_level_max_exp = 5
 
-    if len(all_params) > 1:
-        # Go over all square tilings, tiling with each dimension.
-        tile_sizes = [2**k for k in range(0, first_level_max_exp + 1)]
-        tilings = itertools.product(tile_sizes, repeat=len(all_params))
-        for tiling in tilings:
-            first_level_strategy = {}
-            second_level_strategy = {}
-            for i, group in enumerate(all_params):
-                for param in group:
-                    first_level_strategy[param] = tiling[i]
-                    second_level_strategy[param] = 1
+    #if len(all_params) > 1:
+    # Go over all square tilings, tiling with each dimension.
+    tile_sizes = [2**k for k in range(0, first_level_max_exp + 1)]
+    tilings = itertools.product(tile_sizes, repeat=len(all_params))
+    for tiling in tilings:
+        first_level_strategy = {}
+        second_level_strategy = {}
+        for i, group in enumerate(all_params):
+            for param in group:
+                first_level_strategy[param] = tiling[i]
+                second_level_strategy[param] = 1
 
-            yield {
-                'first_level': first_level_strategy,
-                'second_level': second_level_strategy,
-            }
-    else:
-        # Get all available tilings for the given loop parameters.
-        # First, we go over all possible tiling exponents for the first level.
-        for first_level_tile_size_exp in range(0, first_level_max_exp + 1):
-            # For each possible first level tiling, one dimension may be masked. Calculate all n + 1 possibilities of
-            # masking one of the n dimensions, including no masking.
-            first_level_mask_cap = len(all_params[0]) if first_level_tile_size_exp > 0 else 0
-            for first_level_mask_pos in range(-1, first_level_mask_cap):
-                # Get a tiling for the resulting second level. The second level exponent is upper bounded by the tiling
-                # size exponent of the first level.
-                second_level_cap = min(first_level_tile_size_exp, second_level_max_exp + 1)
-                for second_level_tile_size_exp in range(0, max(1, second_level_cap)):
-                    # Similar to the first level, one or no dimension may be masked.
-                    second_level_mask_cap = len(all_params[0]) if second_level_tile_size_exp > 0 else 0
-                    for second_level_mask_pos in range(-1, second_level_mask_cap):
-                        first_level_strategy = {}
-                        second_level_strategy = {}
-                        for i, param in enumerate(all_params[0]):
-                            if i == first_level_mask_pos:
-                                first_level_strategy[param] = 1
-                            else:
-                                first_level_strategy[param] = 2**first_level_tile_size_exp
+        yield {
+            'first_level': first_level_strategy,
+            'second_level': second_level_strategy,
+        }
+    #else:
+    #    # Get all available tilings for the given loop parameters.
+    #    # First, we go over all possible tiling exponents for the first level.
+    #    for first_level_tile_size_exp in range(0, first_level_max_exp + 1):
+    #        # For each possible first level tiling, one dimension may be masked. Calculate all n + 1 possibilities of
+    #        # masking one of the n dimensions, including no masking.
+    #        first_level_mask_cap = len(all_params[0]) if first_level_tile_size_exp > 0 else 0
+    #        for first_level_mask_pos in range(-1, first_level_mask_cap):
+    #            # Get a tiling for the resulting second level. The second level exponent is upper bounded by the tiling
+    #            # size exponent of the first level.
+    #            second_level_cap = min(first_level_tile_size_exp, second_level_max_exp + 1)
+    #            for second_level_tile_size_exp in range(0, max(1, second_level_cap)):
+    #                # Similar to the first level, one or no dimension may be masked.
+    #                second_level_mask_cap = len(all_params[0]) if second_level_tile_size_exp > 0 else 0
+    #                for second_level_mask_pos in range(-1, second_level_mask_cap):
+    #                    first_level_strategy = {}
+    #                    second_level_strategy = {}
+    #                    for i, param in enumerate(all_params[0]):
+    #                        if i == first_level_mask_pos:
+    #                            first_level_strategy[param] = 1
+    #                        else:
+    #                            first_level_strategy[param] = 2**first_level_tile_size_exp
 
-                            if i == second_level_mask_pos:
-                                second_level_strategy[param] = 1
-                            else:
-                                second_level_strategy[param] = 2**second_level_tile_size_exp
+    #                        if i == second_level_mask_pos:
+    #                            second_level_strategy[param] = 1
+    #                        else:
+    #                            second_level_strategy[param] = 2**second_level_tile_size_exp
 
-                        yield {
-                            'first_level': first_level_strategy,
-                            'second_level': second_level_strategy,
-                        }
+    #                    yield {
+    #                        'first_level': first_level_strategy,
+    #                        'second_level': second_level_strategy,
+    #                    }
 
 def _local_storage(all_params, in_arrays, out_arrays, array_level_accesses):
     arrays = list(in_arrays)
@@ -216,47 +216,49 @@ def _apply_tiling(map: SDFG, tiling):
         second_level_tile_sizes = [tiling['second_level'][param] for param in map_entry.map.params]
 
         # If at least one of the dimensions is not tiled, we need to extract the tiling via strip mining.
-        if min(first_level_tile_sizes) == 1:
-            for i, param in enumerate(map_entry.map.params):
-                if tiling['first_level'][param] > 1:
-                    StripMining.apply_to(sdfg=map,
-                                         options={
-                                            'dim_idx': i,
-                                            'tile_size': tiling['first_level'][param],
-                                         },
-                                         map_entry=map_entry,
-                                         save=True,
-                                         verify=False)
-        else:
-            MapTiling.apply_to(sdfg=map,
-                               options={
-                                   'tile_sizes': first_level_tile_sizes,
-                                   'tile_trivial': False
-                               },
-                               map_entry=map_entry,
-                               save=True,
-                               verify=False)
+        #if min(first_level_tile_sizes) == 1:
+        #    for i, param in enumerate(map_entry.map.params):
+        #        if tiling['first_level'][param] > 1:
+        #            StripMining.apply_to(sdfg=map,
+        #                                 options={
+        #                                    'dim_idx': i,
+        #                                    'tile_size': tiling['first_level'][param],
+        #                                 },
+        #                                 map_entry=map_entry,
+        #                                 save=True,
+        #                                 verify=False)
+        #else:
+        if max(first_level_tile_sizes) == 1:
+            continue
+        MapTiling.apply_to(sdfg=map,
+                            options={
+                                'tile_sizes': first_level_tile_sizes,
+                                'tile_trivial': False
+                            },
+                            map_entry=map_entry,
+                            save=True,
+                            verify=False)
 
-        if min(second_level_tile_sizes) == 1:
-            for i, param in enumerate(map_entry.map.params):
-                if tiling['second_level'][param] > 1:
-                    StripMining.apply_to(sdfg=map,
-                                         options={
-                                            'dim_idx': i,
-                                            'tile_size': tiling['second_level'][param],
-                                         },
-                                         map_entry=map_entry,
-                                         save=True,
-                                         verify=False)
-        else:
-            MapTiling.apply_to(sdfg=map,
-                               options={
-                                   'tile_sizes': second_level_tile_sizes,
-                                   'tile_trivial': False
-                               },
-                               map_entry=map_entry,
-                               save=True,
-                               verify=False)
+        #if min(second_level_tile_sizes) == 1:
+        #    for i, param in enumerate(map_entry.map.params):
+        #        if tiling['second_level'][param] > 1:
+        #            StripMining.apply_to(sdfg=map,
+        #                                 options={
+        #                                    'dim_idx': i,
+        #                                    'tile_size': tiling['second_level'][param],
+        #                                 },
+        #                                 map_entry=map_entry,
+        #                                 save=True,
+        #                                 verify=False)
+        #else:
+        #    MapTiling.apply_to(sdfg=map,
+        #                       options={
+        #                           'tile_sizes': second_level_tile_sizes,
+        #                           'tile_trivial': False
+        #                       },
+        #                       map_entry=map_entry,
+        #                       save=True,
+        #                       verify=False)
 
     return True
 
