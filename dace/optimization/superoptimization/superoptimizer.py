@@ -430,6 +430,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
             end = time.time()
             print(f"Hypothesis took {end - start}, {process_time}")
             print(runtime, schedule_desc)
+            print("Current best schedule:", best_schedule_desc)
 
             start = time.time()
 
@@ -451,6 +452,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
                 best_schedule = schedule
                 best_process_time = process_time
                 best_schedule_desc = schedule_desc
+                print("New best schedule:", schedule_desc)
 
         print(f"Best schedule {best_runtime}, {best_schedule}")
 
