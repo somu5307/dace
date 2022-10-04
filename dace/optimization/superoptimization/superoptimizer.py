@@ -356,6 +356,21 @@ class Superoptimizer(auto_tuner.AutoTuner):
                 print(f"Optimization of {state} took {state_end_time - state_start_time}")
         return tune_time_sum
 
+    def _toggle_cache_file(self, save_path: Path, candidate_1: Path, candidate_2: Path) -> Path:
+        """
+        Toggle to the different cache file for the next save and remove any previous one if present.
+        """
+        new_save_path = candidate_1 if save_path == candidate_2 else candidate_2
+        # Let's not do this for now..
+        #if save_path.is_file():
+        #    save_path.unlink()
+        return new_save_path
+
+    def _save_map_cache(self, save_path: Path, alt_1: Path, alt_2: Path, cache) -> Path:
+        with open(save_path, "w") as handle:
+            json.dump(cache, handle)
+        return self._toggle_cache_file(save_path, alt_1, alt_2)
+
     def _find_best_map_schedule(self, mp, map_hash, data_report) -> Tuple[List, float]:
         start_t = time.perf_counter()
         cached_rt = 0
@@ -365,11 +380,15 @@ class Superoptimizer(auto_tuner.AutoTuner):
         # Create arguments once
         arguments = arguments_from_data_report(mp, data_report=data_report)
 
-        map_cache_path = self._map_schedule_cache_folder / f"{map_hash}.json"
+        cache_path_1 = self._map_schedule_cache_folder / f"{map_hash}_1.json"
+        cache_path_2 = self._map_schedule_cache_folder / f"{map_hash}_2.json"
+        map_cache_path = cache_path_2 if cache_path_2.is_file() else cache_path_1
         map_cache = {}
+
         if map_cache_path.is_file():
             with open(map_cache_path, "r") as handle:
                 map_cache = json.load(handle)
+            map_cache_path = cache_path_2 if map_cache_path == cache_path_1 else cache_path_1
 
             if map_cache['opt_runtime']:
                 cached_rt = map_cache['opt_runtime']
@@ -383,9 +402,8 @@ class Superoptimizer(auto_tuner.AutoTuner):
             map_cache["schedule_state"] = [0, 0, 0, 0, 0]
             map_cache["cached process time"] = map_process_time
 
-            with open(map_cache_path, "w") as handle:
-                map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
-                json.dump(map_cache, handle)
+            map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
+            map_cache_path = self._save_map_cache(map_cache_path, cache_path_1, cache_path_2, map_cache)
             with open(self._map_schedule_cache_folder / f"{map_hash}.sdfg", "w") as handle:
                 json.dump(mp.to_json(), handle)
 
@@ -439,8 +457,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
                 map_cache["schedule_state"] = schedule_state
                 map_cache["cached process time"] = best_process_time
                 map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
-                with open(map_cache_path, "w") as handle:
-                    json.dump(map_cache, handle)
+                map_cache_path = self._save_map_cache(map_cache_path, cache_path_1, cache_path_2, map_cache)
 
             if runtime == math.inf:
                 continue
@@ -464,8 +481,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
         }
         map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
 
-        with open(map_cache_path, "w") as handle:
-            json.dump(map_cache, handle)
+        map_cache_path = self._save_map_cache(map_cache_path, cache_path_1, cache_path_2, map_cache)
 
         return best_schedule, best_runtime, cached_rt + (time.perf_counter() - start_t)
 
