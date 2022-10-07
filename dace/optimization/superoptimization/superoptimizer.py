@@ -35,7 +35,7 @@ from dace.optimization.measure import measure, random_arguments, create_data_rep
 from dace.optimization.superoptimization.enumerator import map_fusion_enumerator, map_schedule_enumerator
 
 MINIMUM_SPEEDUP = 1.05
-LOWER_BOUND_SCALING = 1.2
+LOWER_BOUND_SCALING = 1.5
 
 
 class Superoptimizer(auto_tuner.AutoTuner):
@@ -386,12 +386,24 @@ class Superoptimizer(auto_tuner.AutoTuner):
         map_cache = {}
 
         if map_cache_path.is_file():
-            with open(map_cache_path, "r") as handle:
-                map_cache = json.load(handle)
-            map_cache_path = cache_path_2 if map_cache_path == cache_path_1 else cache_path_1
+            try:
+                with open(map_cache_path, "r") as handle:
+                    map_cache = json.load(handle)
+                map_cache_path = cache_path_2 if map_cache_path == cache_path_1 else cache_path_1
 
-            if map_cache['opt_runtime']:
-                cached_rt = map_cache['opt_runtime']
+                if map_cache['opt_runtime']:
+                    cached_rt = map_cache['opt_runtime']
+            except:
+                try:
+                    map_cache_path = cache_path_2 if map_cache_path == cache_path_1 else cache_path_1
+                    with open(map_cache_path, "r") as handle:
+                        map_cache = json.load(handle)
+                    map_cache_path = cache_path_2 if map_cache_path == cache_path_1 else cache_path_1
+
+                    if map_cache['opt_runtime']:
+                        cached_rt = map_cache['opt_runtime']
+                except:
+                    raise ValueError("NO cache")
         else:
             map_runtime, map_process_time = measure(mp,
                                                     arguments,
