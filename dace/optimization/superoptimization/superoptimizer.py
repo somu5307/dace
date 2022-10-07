@@ -42,7 +42,7 @@ class Superoptimizer(auto_tuner.AutoTuner):
     def __init__(self,
                  sdfg: SDFG,
                  device_type: DeviceType = DeviceType.CPU,
-                 measurements: int = 20,
+                 measurements: int = 50,
                  warmup: int = 10) -> None:
         super().__init__(sdfg)
         assert device_type == DeviceType.CPU
@@ -379,12 +379,16 @@ class Superoptimizer(auto_tuner.AutoTuner):
 
         # Create arguments once
         arguments = arguments_from_data_report(mp, data_report=data_report)
-
+        
         cache_path_1 = self._map_schedule_cache_folder / f"{map_hash}_1.json"
         cache_path_2 = self._map_schedule_cache_folder / f"{map_hash}_2.json"
         map_cache_path = cache_path_2 if cache_path_2.is_file() else cache_path_1
-        map_cache = {}
+        
+        cache_path_final = self._map_schedule_cache_folder / f"{map_hash}_final.json"
+        if cache_path_final.is_file():
+            map_cache_path = cache_path_final
 
+        map_cache = {}
         if map_cache_path.is_file():
             try:
                 with open(map_cache_path, "r") as handle:
@@ -492,9 +496,10 @@ class Superoptimizer(auto_tuner.AutoTuner):
             "schedule desc": best_schedule_desc
         }
         map_cache['opt_runtime'] = cached_rt + (time.perf_counter() - start_t)
-
-        map_cache_path = self._save_map_cache(map_cache_path, cache_path_1, cache_path_2, map_cache)
-
+        
+        cache_path_final = self._map_schedule_cache_folder / f"{map_hash}_final.json"
+        map_cache_path = self._save_map_cache(cache_path_final, cache_path_1, cache_path_2, map_cache)
+        
         return best_schedule, best_runtime, cached_rt + (time.perf_counter() - start_t)
 
     def _measure_initial_map_runtimes(self, sdfg: SDFG,
