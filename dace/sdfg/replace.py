@@ -60,6 +60,9 @@ def replace_dict(subgraph: 'dace.sdfg.state.StateGraphView',
 
     # Replace in node properties
     for node in subgraph.nodes():
+        if isinstance(node, dace.nodes.NestedSDFG):
+            node.sdfg.replace_dict(repl, symrepl)
+
         replace_properties_dict(node, repl, symrepl)
 
     # Replace in memlets
@@ -148,6 +151,14 @@ def replace_properties_dict(node: Any,
                     propval[symname] = symbolic.pystr_to_symbolic(str(sym_mapping)).subs(symrepl)
                 except AttributeError:  # If the symbolified value has no subs
                     pass
+        elif isinstance(propclass, properties.ListProperty) and pname == 'params':
+            params_ = []
+            for param in propval:
+                param_ = param
+                if param in repl:
+                    param_ = repl[param]
+                params_.append(param_)
+            node.params = params_
 
 
 def replace_properties(node: Any, symrepl: Dict[symbolic.symbol, symbolic.SymbolicType], name: str, new_name: str):

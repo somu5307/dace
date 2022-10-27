@@ -6,7 +6,7 @@ import copy
 import sympy
 
 from dace.sdfg.sdfg import SDFG
-from dace.sdfg.state import SDFGState
+from dace.sdfg.state import SDFGState, StateSubgraphView
 from dace.sdfg import nodes as nds
 from dace.memlet import Memlet
 from dace.sdfg import utils as sdutil
@@ -183,7 +183,9 @@ class OTFMapFusion(transformation.SingleStateTransformation):
             out_memlet = out_memlets[array]
             out_accesses = tuple(out_memlet.subset.ranges)
             for in_accesses in in_memlets[array]:
-                # Add intermediate scalar for output of copied map content
+                # Step 1: For every read element from first map
+                # - Add temporary scalar for this element
+                # - Connect memlets of second map to read from this temporary scalar
                 tmp_name = "__otf"
                 tmp_name, _ = sdfg.add_scalar(tmp_name,
                                               sdfg.arrays[array].dtype,
@@ -193,80 +195,33 @@ class OTFMapFusion(transformation.SingleStateTransformation):
                 tmp_access = graph.add_access(tmp_name)
                 tmp_access.setzero = True
 
-                # Connect in memlets of second map to this scalar
                 read_memlet_group = in_memlets[array][in_accesses]
                 for edge in read_memlet_group:
                     graph.add_edge(tmp_access, None, edge.dst, edge.dst_conn, Memlet(tmp_name))
 
-                # Solve index mapping between memlets
+                # Step 2: Actually compute the value of the temporary scalar
+                # - Copy map content of first map
+                # - Solve the memlets for the indices of the second map
+                # - Connect edges to temporary scalar
+
+                # Figure out access mapping
                 param_mapping = OTFMapFusion.solve(first_map_entry.map.params, out_accesses,
                                                    self.second_map_entry.map.params, in_accesses)
 
-                # Copy actual content
-                first_map_inner_nodes = self._copy_first_map_contents(sdfg, graph, first_map_entry)
+                # Obtain the subgraph necessary to compute the scalar
+                computation_nodes = self._copy_first_map_contents(sdfg, graph, first_map_entry)
 
-                # Prepare: Symbol collision
-                # Second map defines symbols (params) and becomes the new outer scope of the copied nodes.
-                # Thus, newly introduced symbols in this subgraph must be renamed first to avoid conflicts.
-                # Note symbols of first map must be re-named according to the param mapping.
-                for node in first_map_inner_nodes:
-                    # TODO: More complex cases, e.g. map nests, states
-                    if not isinstance(node, nds.MapEntry):
+                # Rename all collision symbols in subgraph
+                computation_subgraph = StateSubgraphView(graph, computation_nodes)
+                for param in self.second_map_entry.map.params:
+                    if param in first_map_entry.map.params:
+                        # Only find new names for symbols that are local in the scope of the first map entry. The symbols defined by the map itself are replaced by mapping to the parameters of the second map.
                         continue
 
-                    # Rename map params
-                    inner_map_subs = {}
-                    inner_map_params = []
-                    for param in node.map.params:
-                        n = 0
-                        r = f"r_{n}"
-                        while r in self.second_map_entry.map.params or r in inner_map_params:
-                            r = f"r_{n}"
-                            n = n + 1
-
-                        r = symbolic.symbol(r)
-                        inner_map_subs[param] = r
-                        inner_map_params.append(str(r))
-
-                    node.map.params = inner_map_params
-
-                    # Substitue range definitions by symbols for second map
-                    ranges = []
-                    for access in node.map.range:
-                        b, e, s = access
-                        b = symbolic.pystr_to_symbolic(b)
-                        e = symbolic.pystr_to_symbolic(e)
-                        s = symbolic.pystr_to_symbolic(s)
-
-                        b = b.subs(param_mapping)
-                        e = e.subs(param_mapping)
-                        s = s.subs(param_mapping)
-
-                        ranges.append((b, e, s))
-                    node.map.range = Range(ranges)
-
-                    # Re-name all memlets in subgraph
-                    scope_subs = {**param_mapping, **inner_map_subs}
-                    scope_subgraph = graph.scope_subgraph(node, graph.exit_node(node))
-                    for edge in scope_subgraph.edges():
-                        memlet = edge.data
-                        # Substitute accesses
-                        ranges = []
-                        for access in memlet.subset.ranges:
-                            b, e, s = access
-                            b = symbolic.pystr_to_symbolic(b)
-                            e = symbolic.pystr_to_symbolic(e)
-                            s = symbolic.pystr_to_symbolic(s)
-
-                            b = b.subs(scope_subs)
-                            e = e.subs(scope_subs)
-                            s = s.subs(scope_subs)
-
-                            ranges.append((b, e, s))
-                        memlet.subset = Range(ranges)
+                    computation_subgraph.replace(param, param + "_local")
 
                 # Now connect the nodes to the otf_scalar and second map entry
-                for node in first_map_inner_nodes:
+                for node in computation_nodes:
                     for edge in graph.out_edges(node):
                         memlet = edge.data
                         if memlet.wcr is not None and memlet.data == self.array.data:
@@ -303,7 +258,7 @@ class OTFMapFusion(transformation.SingleStateTransformation):
                             e = e.subs(param_mapping)
                             s = s.subs(param_mapping)
 
-                            ranges.append((b, e, s))
+                            ranges.append((str(b), str(e), str(s)))
 
                         memlet.subset = Range(ranges)
 
