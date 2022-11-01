@@ -241,9 +241,6 @@ class MultiExpansion(transformation.SubgraphTransformation):
                     if firstp != secondp:
                         replace(map_scope, '__' + firstp + '_fused', secondp)
 
-                # now also replace the map variables inside maps
-                for i in range(len(map.params)):
-                    map.params[i] = params_dict_map[map.params[i]]
 
             if self.debug:
                 print("MultiExpansion::Params replaced")

@@ -541,7 +541,7 @@ def test_prime_fusion():
 
     assert count_maps(sdfg) == 2
 
-    nums = np.arange(2, 128, 1, dtype=np.int64)
+    nums = np.arange(2, 130, 1, dtype=np.int64)
     res = np.zeros((128, ), dtype=np.int64)
     sdfg(A=nums, B=res)
 

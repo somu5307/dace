@@ -60,9 +60,6 @@ def replace_dict(subgraph: 'dace.sdfg.state.StateGraphView',
 
     # Replace in node properties
     for node in subgraph.nodes():
-        if isinstance(node, dace.nodes.NestedSDFG):
-            node.sdfg.replace_dict(repl, symrepl)
-
         replace_properties_dict(node, repl, symrepl)
 
     # Replace in memlets
@@ -114,6 +111,10 @@ def replace_properties_dict(node: Any,
                 setattr(node, pname, repl[propval])
         elif isinstance(propclass, (properties.RangeProperty, properties.ShapeProperty)):
             setattr(node, pname, _replsym(list(propval), symrepl))
+        elif isinstance(propclass, properties.ListProperty) and propclass.element_type is str:
+            # String list property, e.g., map parameters
+            newprop = [repl[k] if k in repl else k for k in propval]
+            setattr(node, pname, newprop)
         elif isinstance(propclass, properties.CodeProperty):
             # Don't replace variables that appear as an input or an output
             # connector, as this should shadow the outer declaration.
@@ -151,15 +152,6 @@ def replace_properties_dict(node: Any,
                     propval[symname] = symbolic.pystr_to_symbolic(str(sym_mapping)).subs(symrepl)
                 except AttributeError:  # If the symbolified value has no subs
                     pass
-        elif isinstance(propclass, properties.ListProperty) and pname == 'params':
-            params_ = []
-            for param in propval:
-                param_ = param
-                if param in repl:
-                    param_ = repl[param]
-                params_.append(param_)
-            node.params = params_
-
 
 def replace_properties(node: Any, symrepl: Dict[symbolic.symbol, symbolic.SymbolicType], name: str, new_name: str):
     replace_properties_dict(node, {name: new_name}, symrepl)

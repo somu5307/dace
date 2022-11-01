@@ -14,7 +14,7 @@ from dace.subsets import Range
 from dace.transformation import transformation
 from dace import data as dt
 from dace import dtypes
-from dace import symbolic
+from dace import symbolic, nodes
 
 from dace.frontend.operations import detect_reduction_type
 
@@ -219,6 +219,16 @@ class OTFMapFusion(transformation.SingleStateTransformation):
                         continue
 
                     computation_subgraph.replace(param, param + "_local")
+
+                # Repeat for NestedSDFG
+                for node in computation_nodes:
+                    if not isinstance(node, nodes.NestedSDFG):
+                        continue
+
+                    for param in self.second_map_entry.map.params:
+                        if param in first_map_entry.map.params:
+                            continue
+                        node.sdfg.replace(param, param + "_local")
 
                 # Now connect the nodes to the otf_scalar and second map entry
                 for node in computation_nodes:
